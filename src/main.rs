@@ -70,7 +70,7 @@ fn parse_json_null(json: &str) -> nom::IResult<&str, JsonVal> {
 }
 
 fn parse_json_num(json: &str) -> nom::IResult<&str, JsonVal> {
-    map(double, |d| (JsonVal::Num(d)))(json)
+    map(double, JsonVal::Num)(json)
 }
 
 fn parse_json_obj(json: &str) -> nom::IResult<&str, JsonVal> {
@@ -88,7 +88,6 @@ fn parse_json_obj(json: &str) -> nom::IResult<&str, JsonVal> {
             fields
                 .into_iter()
                 .map(|(f, v)| (f.to_string(), v))
-                .into_iter()
                 .collect(),
         ),
     ))
@@ -96,8 +95,9 @@ fn parse_json_obj(json: &str) -> nom::IResult<&str, JsonVal> {
 
 fn parse_field(i: &str) -> nom::IResult<&str, (&str, JsonVal)> {
     // TODO: Handle escape for \"
-    let (i, field) = delimited(char('"'), is_not("\""), char('"'))(i)?;
-    let (i, _) = tuple((multispace0, char(':'), multispace0))(i)?;
-    let (i, val) = parse_json(i)?;
+    let (i, (field, val)) = pair(
+        delimited(char('"'), is_not("\""), char('"')),
+        preceded(tuple((multispace0, char(':'), multispace0)), parse_json),
+    )(i)?;
     Ok((i, (field, val)))
 }
