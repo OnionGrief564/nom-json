@@ -4,28 +4,18 @@ use nom::{
     self,
     branch::alt,
     bytes::complete::{is_not, tag},
-    character::complete::{digit1, multispace0},
-    combinator::{map, map_res, opt},
-    multi::separated_list1,
+    character::complete::{char, multispace0},
+    combinator::map,
+    error::context,
+    multi::separated_list0,
     number::complete::double,
     sequence::{delimited, pair, preceded, terminated, tuple},
 };
 
 fn main() {
-    let print = std::env::args().nth(1).expect("Need json as arg");
-    println!("{print}");
-    // let json = "{             \
-    //     \"field\": \"1\",
-    //     \"banana\": \"2\"
-    //     }";
-    let json = "[\"1\", \"2\"]";
-    let a = alt((
-        parse_json_obj,
-        parse_json_arr,
-        parse_json_num,
-        parse_json_string,
-    ))(json);
-    println!("{a:#?}")
+    let json = std::env::args().nth(1).expect("Need json as arg");
+    let (_, result) = parse_json(&json).unwrap();
+    println!("{result:#?}")
 }
 
 #[derive(Debug)]
@@ -38,35 +28,45 @@ enum JsonVal {
     Null,
 }
 
-// impl FromStr for JsonVal {
-//     type Err = Box<dyn error::Error>;
-//
-//     fn from_str(s: &str) -> Result<Self, Self::Err> {
-//         alt((
-//             parse_json_obj,
-//             parse_json_arr,
-//             parse_json_string,
-//             parse_json_num,
-//         ))?
-//     }
-// }
-//
-//
+fn parse_json(json: &str) -> nom::IResult<&str, JsonVal> {
+    alt((
+        parse_json_arr,
+        parse_json_obj,
+        parse_json_num,
+        parse_json_string,
+        parse_json_boolean,
+        parse_json_null,
+    ))(json)
+}
 fn parse_json_arr(json: &str) -> nom::IResult<&str, JsonVal> {
-    let (i, fields) = preceded(
-        pair(tag("["), multispace0),
-        terminated(
-            separated_list1(pair(opt(tag(",")), multispace0), parse_json_string),
-            pair(multispace0, tag("]")),
+    let (i, vals) = context(
+        "array",
+        preceded(
+            pair(char('['), multispace0),
+            terminated(
+                separated_list0(pair(char(','), multispace0), parse_json),
+                pair(multispace0, char(']')),
+            ),
         ),
     )(json)?;
-    Ok((i, JsonVal::Array(fields.into_iter().collect())))
+    Ok((i, JsonVal::Array(vals.into_iter().collect())))
 }
 
 fn parse_json_string(json: &str) -> nom::IResult<&str, JsonVal> {
-    map(delimited(tag("\""), is_not("\""), tag("\"")), |v: &str| {
+    map(delimited(char('"'), is_not("\""), char('"')), |v: &str| {
         JsonVal::Str(v.to_string())
     })(json)
+}
+
+fn parse_json_boolean(json: &str) -> nom::IResult<&str, JsonVal> {
+    alt((
+        map(tag("true"), |_| JsonVal::Boolean(true)),
+        map(tag("false"), |_| JsonVal::Boolean(false)),
+    ))(json)
+}
+
+fn parse_json_null(json: &str) -> nom::IResult<&str, JsonVal> {
+    map(tag("null"), |_| JsonVal::Null)(json)
 }
 
 fn parse_json_num(json: &str) -> nom::IResult<&str, JsonVal> {
@@ -75,10 +75,10 @@ fn parse_json_num(json: &str) -> nom::IResult<&str, JsonVal> {
 
 fn parse_json_obj(json: &str) -> nom::IResult<&str, JsonVal> {
     let (i, fields) = preceded(
-        pair(tag("{"), multispace0),
+        pair(char('{'), multispace0),
         terminated(
-            separated_list1(pair(opt(tag(",")), multispace0), parse_field),
-            pair(multispace0, tag("}")),
+            separated_list0(pair(char(','), multispace0), parse_field),
+            pair(multispace0, char('}')),
         ),
     )(json)?;
 
@@ -96,9 +96,8 @@ fn parse_json_obj(json: &str) -> nom::IResult<&str, JsonVal> {
 
 fn parse_field(i: &str) -> nom::IResult<&str, (&str, JsonVal)> {
     // TODO: Handle escape for \"
-    let (i, field) = delimited(tag("\""), is_not("\""), tag("\""))(i)?;
-    let (i, _) = tuple((multispace0, tag(":"), multispace0))(i)?;
-    let (i, val) = parse_json_string(i)?;
-    println!("{field}: {val:#?}");
+    let (i, field) = delimited(char('"'), is_not("\""), char('"'))(i)?;
+    let (i, _) = tuple((multispace0, char(':'), multispace0))(i)?;
+    let (i, val) = parse_json(i)?;
     Ok((i, (field, val)))
 }
